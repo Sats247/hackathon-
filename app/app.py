@@ -98,9 +98,6 @@ def validate_image_route():
 def create_report():
     device_id = request.form.get('device_id', '')
 
-    # Rate limit check
-    if not db.check_rate_limit(device_id):
-        return jsonify({'error': 'Rate limit exceeded. Max 3 reports per hour.'}), 429
 
     # Photo
     if 'photo' not in request.files:
