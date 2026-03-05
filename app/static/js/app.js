@@ -526,8 +526,19 @@ function WorkerDashboard({ user, onLogout }) {
     };
 
     const speak = (task) => {
-        const addr = task.manual_address || (task.latitude ? `${task.latitude.toFixed(4)}, ${task.longitude.toFixed(4)}` : 'unknown location');
-        const msg = new SpeechSynthesisUtterance(`${task.title} at ${addr}`);
+        let text = '';
+        if (lang === 'kn') {
+            text = `${task.title}. ಸ್ಥಳ: ${task.manual_address || 'ಮಾಹಿತಿ ಇಲ್ಲ'}`;
+        } else if (lang === 'hi') {
+            text = `${task.title}. स्थान: ${task.manual_address || 'अज्ञात'}`;
+        } else {
+            const addr = task.manual_address || (task.latitude ? `${task.latitude.toFixed(4)}, ${task.longitude.toFixed(4)}` : 'unknown location');
+            text = `${task.title} at ${addr}`;
+        }
+        const msg = new SpeechSynthesisUtterance(text);
+        if (lang === 'kn') msg.lang = 'kn-IN';
+        else if (lang === 'hi') msg.lang = 'hi-IN';
+        else msg.lang = 'en-IN';
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(msg);
     };
