@@ -244,17 +244,30 @@ function ReportFlow({ deviceId, onBack }) {
     const [detecting, setDetecting] = useState(false);
 
     // ── Step 1: Photo Upload + AI Validate ──────────────────────
+    const runValidation = async (file) => {
+        setAiStatus('validating');
+        try {
+            const fd = new FormData();
+            fd.append('photo', file);
+            const r = await apiPostForm('/api/validate-image', fd);
+            if (r.ok && r.data.result === 'Invalid') {
+                setAiStatus('invalid');
+            } else {
+                // Any other response (Valid, network error, etc.) -> allow user through
+                setAiStatus('valid');
+            }
+        } catch (err) {
+            // Network failure -> fail open so user isn't stuck
+            setAiStatus('valid');
+        }
+    };
+
     const handlePhoto = async file => {
         if (!file) return;
         if (file.size > 5 * 1024 * 1024) { setSnack('File too large. Max 5MB.'); return; }
         setPhotoFile(file);
         setPhotoURL(URL.createObjectURL(file));
-        setAiStatus('validating');
-        const fd = new FormData();
-        fd.append('photo', file);
-        const r = await apiPostForm('/api/validate-image', fd);
-        if (r.ok && r.data.result === 'Valid') setAiStatus('valid');
-        else setAiStatus('invalid');
+        await runValidation(file);
     };
 
     // ── Step 2: Geolocation ──────────────────────────────────────
@@ -379,7 +392,24 @@ function ReportFlow({ deviceId, onBack }) {
                         </div>
                     )}
                     {aiStatus === 'valid' && <div className="alert alert-success mt-2">✅ {t('photoVerified')}</div>}
-                    {aiStatus === 'invalid' && <div className="alert alert-error mt-2">❌ {t('photoInvalid')}</div>}
+                    {aiStatus === 'invalid' && (
+                        <div className="alert alert-error mt-2">
+                            <div>
+                                <div>❌ {t('photoInvalid')}</div>
+                                <div style={{ fontSize: '0.82rem', marginTop: '0.4rem', opacity: 0.8 }}>
+                                    Make sure your photo clearly shows a civic issue (pothole, garbage, broken light, sewage).
+                                </div>
+                                <button className="btn btn-sm btn-secondary mt-2"
+                                    onClick={() => photoFile && runValidation(photoFile)}>
+                                    🔄 Try again
+                                </button>
+                                <button className="btn btn-sm btn-ghost mt-2" style={{ marginLeft: 8 }}
+                                    onClick={() => setAiStatus('valid')}>
+                                    Skip check →
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="flex gap-2 mt-3">
                         <button className="btn btn-secondary" onClick={onBack}>{t('back')}</button>
