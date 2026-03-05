@@ -1027,6 +1027,125 @@ function CoordDashboard({ user, onLogout }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// PHOTO GALLERY
+// ═══════════════════════════════════════════════════════════════
+function PhotoGallery({ onBack }) {
+    const [reports, setReports] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [filterStatus, setFilterStatus] = useState('');
+    const [lightbox, setLightbox] = useState(null); // { src, title, caption }
+
+    useEffect(() => {
+        apiGet('/api/reports').then(r => {
+            if (r.ok) setReports(r.data);
+            setLoading(false);
+        });
+    }, []);
+
+    // Build flat list of photos from all reports
+    const photos = reports.reduce((acc, r) => {
+        if (filterStatus && r.status !== filterStatus) return acc;
+        const cat = r.category || 'Other';
+        const catEmoji = { Pothole: '🕳️', Streetlight: '💡', Garbage: '🗑️', Sewage: '🚰', Other: '📌' }[cat] || '📌';
+        const statusLabel = { red: 'Pending', yellow: 'In Progress', green: 'Resolved' }[r.status] || r.status;
+        if (r.before_photo_url) {
+            acc.push({
+                src: r.before_photo_url,
+                title: r.title,
+                caption: `Before · ${catEmoji} ${cat} · ${statusLabel}`,
+                id: r.id,
+                status: r.status,
+                type: 'before'
+            });
+        }
+        if (r.after_photo_url) {
+            acc.push({
+                src: r.after_photo_url,
+                title: r.title,
+                caption: `After · ✅ Resolved`,
+                id: r.id,
+                status: r.status,
+                type: 'after'
+            });
+        }
+        return acc;
+    }, []);
+
+    return (
+        <div>
+            <header className="site-header">
+                <a className="brand" onClick={onBack} style={{ cursor: 'pointer' }}>
+                    <div className="brand-icon">🏙️</div>
+                    <div><div className="brand-name">CivicPulse</div><div className="brand-sub">Bangalore</div></div>
+                </a>
+                <div className="header-actions">
+                    <button className="btn-header" onClick={onBack}>← Home</button>
+                </div>
+            </header>
+
+            <div className="container page">
+                <div className="section-heading mb-3">
+                    <div className="section-heading-icon">🖼️</div>
+                    <div>
+                        <h2>Photo Gallery</h2>
+                        <p>Browse all before &amp; after photos from reported civic issues</p>
+                    </div>
+                </div>
+
+                {/* Filter bar */}
+                <div className="filter-bar mb-3">
+                    <label>Filter by status:</label>
+                    {[['', 'All'], ['red', '🔴 Pending'], ['yellow', '🟡 In Progress'], ['green', '🟢 Resolved']].map(([val, label]) => (
+                        <button key={val} className={`btn btn-sm ${filterStatus === val ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setFilterStatus(val)}>{label}</button>
+                    ))}
+                    <span className="text-muted" style={{ marginLeft: 'auto' }}>{photos.length} photos</span>
+                </div>
+
+                {loading ? (
+                    <div className="flex-center" style={{ padding: '4rem' }}><div className="spinner" /></div>
+                ) : photos.length === 0 ? (
+                    <div className="text-center" style={{ padding: '3rem', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📭</div>
+                        <h3>No photos yet</h3>
+                        <p>Photos will appear once issues are reported.</p>
+                    </div>
+                ) : (
+                    <div className="gallery-grid">
+                        {photos.map((p, i) => (
+                            <div key={i} className="gallery-item" onClick={() => setLightbox(p)}>
+                                <img src={p.src} alt={p.title} className="gallery-img" />
+                                <div className="gallery-overlay">
+                                    <div className="gallery-title">{p.title}</div>
+                                    <div className="gallery-caption">{p.caption}</div>
+                                </div>
+                                {p.type === 'after' && (
+                                    <div className="gallery-badge-after">✅ After</div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Lightbox */}
+            {lightbox && (
+                <div className="lightbox-overlay" onClick={() => setLightbox(null)}>
+                    <div className="lightbox-box" onClick={e => e.stopPropagation()}>
+                        <button className="lightbox-close" onClick={() => setLightbox(null)}>✕</button>
+                        <img src={lightbox.src} alt={lightbox.title} className="lightbox-img" />
+                        <div className="lightbox-info">
+                            <div className="lightbox-title">{lightbox.title}</div>
+                            <div className="lightbox-caption">{lightbox.caption}</div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════
 function App() {
@@ -1050,6 +1169,7 @@ function App() {
     if (view === 'login-coord') return <LoginPage role="coordinator" onLogin={handleLogin} onBack={() => setView('home')} />;
     if (view === 'ngo') return <NGORegisterPage deviceId={deviceId} onBack={() => setView('home')} />;
     if (view === 'report') return <ReportFlow deviceId={deviceId} onBack={() => setView('home')} />;
+    if (view === 'gallery') return <PhotoGallery onBack={() => setView('home')} />;
     if (view === 'worker-dash' && user?.role === 'worker') return <WorkerDashboard user={user} onLogout={logout} />;
     if (view === 'coord-dash' && user?.role === 'coordinator') return <CoordDashboard user={user} onLogout={logout} />;
 
@@ -1074,6 +1194,9 @@ function App() {
                 <div className="hero-buttons">
                     <button className="btn btn-white btn-lg" onClick={() => setView('report')}>
                         📋 Report an Issue
+                    </button>
+                    <button className="btn btn-outline-white btn-lg" onClick={() => setView('gallery')}>
+                        🖼️ View Photo Gallery
                     </button>
                 </div>
                 <div className="hero-links">
