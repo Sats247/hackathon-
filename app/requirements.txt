@@ -4,3 +4,4 @@ pillow
 google-generativeai
 python-dotenv
 requests
+imagehash==4.3.1

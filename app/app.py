@@ -11,7 +11,8 @@ load_dotenv()
 import database as db
 from ai_validator import validate_image
 
-app = Flask(__name__, template_folder='templates', static_folder='static')
+FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist'))
+app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path='/')
 CORS(app)
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
@@ -39,9 +40,23 @@ def save_upload(file, prefix='photo'):
 
 # ─── Serve SPA ────────────────────────────────────────────────────────────────
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_vue_app(path):
+    # If path is not an API route and not an uploads request, serve the Vite index.html
+    if path.startswith('api/') or path.startswith('static/uploads/'):
+        return "Not found", 404
+        
+    # Check if the requested file exists in the Vite dist folder
+    if path and os.path.exists(os.path.join(FRONTEND_DIR, path)):
+        return send_from_directory(FRONTEND_DIR, path)
+        
+    return send_from_directory(FRONTEND_DIR, 'index.html')
+
+
+@app.route('/static/uploads/<filename>')
+def serve_uploads(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -81,7 +96,7 @@ def validate_image_route():
 
     fname, path = save_upload(file, prefix='validate')
     try:
-        result = validate_image(path)
+        validation = validate_image(path)
     finally:
         # Always remove temporary validation file
         try:
@@ -89,7 +104,11 @@ def validate_image_route():
         except Exception:
             pass
 
-    return jsonify({'result': result})
+    return jsonify({
+        'result': validation['result'],
+        'reason': validation.get('reason', ''),
+        'confidence': validation.get('confidence', '')
+    })
 
 
 # ─── Reports ─────────────────────────────────────────────────────────────────
@@ -109,50 +128,47 @@ def create_report():
     fname, path = save_upload(file, prefix='before')
 
     # AI Validation
-    ai_result = validate_image(path)
+    ai_validation = validate_image(path)
+    ai_result = ai_validation['result']
+    ai_reason = ai_validation.get('reason', 'This image does not appear to show a civic issue.')
     if ai_result == 'Invalid':
         os.remove(path)
-        return jsonify({'error': 'AI_INVALID', 'message': 'This image does not appear to show a civic issue.'}), 422
+        return jsonify({'error': 'AI_INVALID', 'message': ai_reason}), 422
 
     # Location
     lat = request.form.get('latitude')
     lng = request.form.get('longitude')
     manual_address = request.form.get('manual_address')
 
-    if lat:
-        lat = float(lat)
-    if lng:
-        lng = float(lng)
-
-    category = request.form.get('category', 'Other')
-    title = request.form.get('title', '').strip()
-    description = request.form.get('description', '').strip()
-
-    if not title:
+    if not request.form.get('title'):
         return jsonify({'error': 'Title is required'}), 400
 
-    # Duplicate detection
-    if lat and lng:
-        duplicate = db.find_nearby_duplicate(category, lat, lng)
+    category = request.form.get('category')
+    
+    if lat and lng and not request.form.get('force'):
+        duplicate = db.find_similar_image(category, float(lat), float(lng), path)
         if duplicate:
-            return jsonify({
-                'duplicate': True,
-                'existing_report': duplicate
-            }), 200
+            # We don't save the new report, we return the old one for upvoting
+            os.remove(path)
+            return jsonify({'success': True, 'duplicate': True, 'existing_report': duplicate})
 
-    data = {
-        'title': title,
-        'description': description,
+    # If no duplicate or forced, compute phash to save
+    phash_str = db.compute_phash(path)
+
+    # Save to DB
+    report_id = db.create_report({
+        'title': request.form.get('title'),
+        'description': request.form.get('description'),
         'category': category,
-        'latitude': lat,
-        'longitude': lng,
-        'manual_address': manual_address,
+        'latitude': float(lat) if lat else None,
+        'longitude': float(lng) if lng else None,
+        'manual_address': request.form.get('manual_address'),
         'before_photo_path': fname,
+        'phash': phash_str,
         'ai_validation_result': ai_result,
         'device_id': device_id
-    }
+    })
 
-    report_id = db.create_report(data)
     report = db.get_report(report_id)
     return jsonify({'success': True, 'report': report}), 201
 
@@ -222,7 +238,7 @@ def upload_after_photo(report_id):
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type'}), 400
     fname, _ = save_upload(file, prefix='after')
-    db.update_report_status(report_id, 'green', fname)
+    db.update_report_status(report_id, 'resolved', fname)
     return jsonify({'success': True})
 
 

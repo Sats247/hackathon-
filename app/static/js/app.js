@@ -1,6 +1,5 @@
-// ═══════════════════════════════════════════════════════════════
+
 //  CivicPulse — Main React App (Part 1: Utils + Auth + Civilian)
-// ═══════════════════════════════════════════════════════════════
 
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -43,8 +42,10 @@ function Snackbar({ message, onDone }) {
 
 // ─── Status Badge ────────────────────────────────────────────────────────────
 function StatusBadge({ status, large }) {
-    const labels = { red: t('status.red'), yellow: t('status.yellow'), green: t('status.green') };
-    const cls = large ? `status-pill ${status}` : `badge badge-${status}`;
+    const labels = { pending: t('status.red'), in_progress: t('status.yellow'), resolved: t('status.green') };
+    const colors = { pending: 'red', in_progress: 'yellow', resolved: 'green' };
+    const color = colors[status] || status;
+    const cls = large ? `status-pill ${color}` : `badge badge-${color}`;
     return <span className={cls}>{labels[status] || status}</span>;
 }
 
@@ -102,10 +103,10 @@ function LeafletMap({ lat, lng, onMove, reports, height }) {
         }
 
         if (reports && reports.length > 0) {
-            const colors = { red: '#E74C3C', yellow: '#F39C12', green: '#27AE60' };
+            const statusColorMap = { pending: '#E74C3C', in_progress: '#F39C12', resolved: '#27AE60' };
             reports.forEach(r => {
                 if (!r.latitude || !r.longitude) return;
-                const color = colors[r.status] || '#888';
+                const color = statusColorMap[r.status] || '#888';
                 const icon = L.divIcon({
                     html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
                     className: '', iconSize: [14, 14], iconAnchor: [7, 7]
@@ -127,9 +128,7 @@ function LeafletMap({ lat, lng, onMove, reports, height }) {
     return <div ref={divRef} className="map-container" style={{ height: height || '300px' }} />;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// LOGIN PAGE
-// ═══════════════════════════════════════════════════════════════
+//Login page lols
 function LoginPage({ role, onLogin, onBack }) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -231,6 +230,7 @@ function ReportFlow({ deviceId, onBack }) {
     const [photoFile, setPhotoFile] = useState(null);
     const [photoURL, setPhotoURL] = useState('');
     const [aiStatus, setAiStatus] = useState(''); // ''|'validating'|'valid'|'invalid'
+    const [aiReason, setAiReason] = useState('');
     const [lat, setLat] = useState(null);
     const [lng, setLng] = useState(null);
     const [manualAddress, setManualAddress] = useState('');
@@ -246,12 +246,14 @@ function ReportFlow({ deviceId, onBack }) {
     // ── Step 1: Photo Upload + AI Validate ──────────────────────
     const runValidation = async (file) => {
         setAiStatus('validating');
+        setAiReason('');
         try {
             const fd = new FormData();
             fd.append('photo', file);
             const r = await apiPostForm('/api/validate-image', fd);
             if (r.ok && r.data.result === 'Invalid') {
                 setAiStatus('invalid');
+                setAiReason(r.data.reason || 'This image does not appear to show a civic issue.');
             } else {
                 // Any other response (Valid, network error, etc.) -> allow user through
                 setAiStatus('valid');
@@ -398,6 +400,7 @@ function ReportFlow({ deviceId, onBack }) {
                                 <div>❌ {t('photoInvalid')}</div>
                                 <div style={{ fontSize: '0.82rem', marginTop: '0.4rem', opacity: 0.8 }}>
                                     Make sure your photo clearly shows a civic issue (pothole, garbage, broken light, sewage).
+                                    {aiReason && <div style={{ marginTop: '0.3rem', fontWeight: 500 }}>AI says: {aiReason}</div>}
                                 </div>
                                 <button className="btn btn-sm btn-secondary mt-2"
                                     onClick={() => photoFile && runValidation(photoFile)}>
@@ -506,7 +509,7 @@ function ReportFlow({ deviceId, onBack }) {
                     <h2>{t('confirmSubmission')}</h2>
                     <p className="text-muted mt-1">Your report has been submitted and is now pending review.</p>
                     <div className="confirm-id">#{confirmed.id}</div>
-                    <div className="mt-2"><StatusBadge status="red" /></div>
+                    <div className="mt-2"><StatusBadge status="pending" /></div>
                     <div className="flex gap-2 mt-3" style={{ justifyContent: 'center' }}>
                         <button className="btn btn-secondary" onClick={onBack}>Back to Home</button>
                     </div>
@@ -574,7 +577,7 @@ function WorkerDashboard({ user, onLogout }) {
     };
 
     const startWork = async (id) => {
-        await apiPost(`/api/reports/${id}/status`, { status: 'yellow' });
+        await apiPost(`/api/reports/${id}/status`, { status: 'in_progress' });
         setSnack('Task started!');
         loadTasks();
     };
@@ -678,17 +681,17 @@ function WorkerDashboard({ user, onLogout }) {
                                     </a>
                                 )}
                                 <div className="task-card-row">
-                                    {task.status === 'red' && (
+                                    {task.status === 'pending' && (
                                         <button className="btn btn-yellow btn-full" onClick={() => startWork(task.id)}>
                                             ▶️ {t('startWork')}
                                         </button>
                                     )}
-                                    {(task.status === 'red' || task.status === 'yellow') && (
+                                    {(task.status === 'pending' || task.status === 'in_progress') && (
                                         <button className="btn btn-green btn-full" onClick={() => markDone(task.id)}>
                                             ✅ {t('markDone')}
                                         </button>
                                     )}
-                                    {task.status === 'green' && (
+                                    {task.status === 'resolved' && (
                                         <div className="badge badge-green" style={{ padding: '0.6rem 1rem', fontSize: '0.9rem', width: '100%', justifyContent: 'center' }}>
                                             ✅ Completed
                                         </div>
@@ -765,7 +768,7 @@ function CoordDashboard({ user, onLogout }) {
             datasets: [{ label: 'Reports/day', data: daily.map(d => d.count), borderColor: '#2E6DA4', backgroundColor: 'rgba(46,109,164,0.1)', tension: 0.4, fill: true }]
         }, {});
 
-        const statusColors = { red: '#E74C3C', yellow: '#F39C12', green: '#27AE60' };
+        const statusColors = { pending: '#E74C3C', in_progress: '#F39C12', resolved: '#27AE60' };
         makeChart('status', 'doughnut', {
             labels: statuses.map(s => s.status),
             datasets: [{ data: statuses.map(s => s.count), backgroundColor: statuses.map(s => statusColors[s.status] || '#888') }]
@@ -799,8 +802,8 @@ function CoordDashboard({ user, onLogout }) {
         if (r.ok) { setSnack('Event created!'); setEventForm({ event_name: '', event_date: '', location: '', description: '', organized_by: '' }); loadAll(); }
     };
 
-    const redReports = reports.filter(r => r.status === 'red' && (!filterCat || r.category === filterCat));
-    const greenReports = reports.filter(r => r.status === 'green');
+    const redReports = reports.filter(r => r.status === 'pending' && (!filterCat || r.category === filterCat));
+    const greenReports = reports.filter(r => r.status === 'resolved');
 
     const tabs = [
         { key: 'pulse', label: '📊 Pulse' },
@@ -818,7 +821,7 @@ function CoordDashboard({ user, onLogout }) {
                 <div className="modal-overlay">
                     <div className="modal">
                         <h3>✗ Reject Report</h3>
-                        <p>Provide a reason for rejection. The status will be set back to red.</p>
+                        <p>Provide a reason for rejection. The status will be set back to pending.</p>
                         <textarea className="form-control mb-2" placeholder={t('rejectNote')} value={rejectNote}
                             onChange={e => setRejectNote(e.target.value)} />
                         <div className="modal-btns">
@@ -872,11 +875,11 @@ function CoordDashboard({ user, onLogout }) {
                             </div>
                         </div>
                         <div className="grid-3">
-                            {[{ s: 'red', label: 'Pending' }, { s: 'yellow', label: 'In Progress' }, { s: 'green', label: 'Resolved' }].map(item => {
+                            {[{ s: 'pending', label: 'Pending' }, { s: 'in_progress', label: 'In Progress' }, { s: 'resolved', label: 'Resolved' }].map(item => {
                                 const count = reports.filter(r => r.status === item.s).length;
                                 return (
-                                    <div key={item.s} className="card" style={{ borderTop: `4px solid var(--${item.s})` }}>
-                                        <div style={{ fontSize: '2rem', fontWeight: 800, color: `var(--${item.s})` }}>{count}</div>
+                                    <div key={item.s} className="card" style={{ borderTop: `4px solid var(--${{ pending: 'red', in_progress: 'yellow', resolved: 'green' }[item.s]})` }}>
+                                        <div style={{ fontSize: '2rem', fontWeight: 800, color: `var(--${{ pending: 'red', in_progress: 'yellow', resolved: 'green' }[item.s]})` }}>{count}</div>
                                         <div className="text-muted">{item.label} Issues</div>
                                     </div>
                                 );
@@ -1077,7 +1080,7 @@ function PhotoGallery({ onBack }) {
         if (filterStatus && r.status !== filterStatus) return acc;
         const cat = r.category || 'Other';
         const catEmoji = { Pothole: '🕳️', Streetlight: '💡', Garbage: '🗑️', Sewage: '🚰', Other: '📌' }[cat] || '📌';
-        const statusLabel = { red: 'Pending', yellow: 'In Progress', green: 'Resolved' }[r.status] || r.status;
+        const statusLabel = { pending: 'Pending', in_progress: 'In Progress', resolved: 'Resolved' }[r.status] || r.status;
         if (r.before_photo_url) {
             acc.push({
                 src: r.before_photo_url,
@@ -1106,7 +1109,7 @@ function PhotoGallery({ onBack }) {
             <header className="site-header">
                 <a className="brand" onClick={onBack} style={{ cursor: 'pointer' }}>
                     <div className="brand-icon">🏙️</div>
-                    <div><div className="brand-name">CivicPulse</div><div className="brand-sub">Bangalore</div></div>
+                    <div><div className="brand-name">CivCity</div><div className="brand-sub">Bangalore</div></div>
                 </a>
                 <div className="header-actions">
                     <button className="btn-header" onClick={onBack}>← Home</button>
@@ -1125,7 +1128,7 @@ function PhotoGallery({ onBack }) {
                 {/* Filter bar */}
                 <div className="filter-bar mb-3">
                     <label>Filter by status:</label>
-                    {[['', 'All'], ['red', '🔴 Pending'], ['yellow', '🟡 In Progress'], ['green', '🟢 Resolved']].map(([val, label]) => (
+                    {[['', 'All'], ['pending', '🔴 Pending'], ['in_progress', '🟡 In Progress'], ['resolved', '🟢 Resolved']].map(([val, label]) => (
                         <button key={val} className={`btn btn-sm ${filterStatus === val ? 'btn-primary' : 'btn-secondary'}`}
                             onClick={() => setFilterStatus(val)}>{label}</button>
                     ))}
@@ -1209,7 +1212,7 @@ function App() {
             <header className="site-header">
                 <div className="brand">
                     <div className="brand-icon">🏙️</div>
-                    <div><div className="brand-name">CivicPulse</div><div className="brand-sub">Bangalore Civic Portal</div></div>
+                    <div><div className="brand-name">CivCity</div><div className="brand-sub">The Bangalore Civic Portal</div></div>
                 </div>
                 <div className="header-actions">
                     <button className="btn-header" onClick={() => setView('login-worker')}>👷 Worker</button>
@@ -1218,7 +1221,7 @@ function App() {
             </header>
 
             <div className="hero">
-                <div className="hero-badge">📢 Bangalore Civic Issue Portal</div>
+                <div className="hero-badge">The Bangalore Civic Portal</div>
                 <h1>Report. Track. Resolve.</h1>
                 <p>Help make Bangalore better. Report potholes, broken streetlights, garbage, and sewage issues — and hold your government accountable.</p>
                 <div className="hero-buttons">
